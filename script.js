@@ -3,6 +3,7 @@
 // Application State
 let transactions = [];
 let filteredTransactions = [];
+let db;
 
 // DOM Elements
 const transactionForm = document.getElementById('transaction-form');
@@ -23,10 +24,23 @@ const categoryBarsContainer = document.getElementById('category-bars');
 const emptyListText = document.getElementById('empty-list-text');
 const emptySummaryText = document.getElementById('empty-summary-text');
 
+// PWA DOM Elements
+const installPrompt = document.getElementById('install-prompt');
+const installButton = document.getElementById('install-button');
+const offlineIndicator = document.getElementById('offline-indicator');
+
+// IndexedDB Configuration
+const DB_NAME = 'ZenBudgetDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'transactions';
+
 // Initialize the application
-function init() {
-    // Load transactions from localStorage
-    loadTransactions();
+async function init() {
+    // Initialize IndexedDB
+    await initIndexedDB();
+    
+    // Load transactions from IndexedDB
+    await loadTransactions();
     
     // Render initial data
     renderTransactions();
@@ -38,31 +52,152 @@ function init() {
     
     // Set up event listeners
     setupEventListeners();
+    
+    // Initialize PWA features
+    initPWA();
 }
 
-// Load transactions from localStorage
-function loadTransactions() {
-    const storedTransactions = localStorage.getItem('zenbudget_transactions');
-    
-    if (storedTransactions) {
-        try {
-            transactions = JSON.parse(storedTransactions);
-            filteredTransactions = [...transactions];
-        } catch (e) {
-            console.error('Error loading transactions from localStorage:', e);
+// Initialize IndexedDB
+function initIndexedDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        
+        request.onerror = (event) => {
+            console.error('IndexedDB error:', event.target.error);
+            reject(event.target.error);
+        };
+        
+        request.onsuccess = (event) => {
+            db = event.target.result;
+            console.log('IndexedDB initialized successfully');
+            resolve();
+        };
+        
+        request.onupgradeneeded = (event) => {
+            db = event.target.result;
+            
+            // Create object store if it doesn't exist
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                
+                // Create indexes for efficient querying
+                store.createIndex('date', 'date', { unique: false });
+                store.createIndex('category', 'category', { unique: false });
+                store.createIndex('type', 'type', { unique: false });
+                store.createIndex('amount', 'amount', { unique: false });
+                
+                console.log('Object store created:', STORE_NAME);
+            }
+        };
+    });
+}
+
+// Load transactions from IndexedDB
+async function loadTransactions() {
+    return new Promise((resolve, reject) => {
+        if (!db) {
+            console.error('IndexedDB not initialized');
             transactions = [];
             filteredTransactions = [];
+            resolve();
+            return;
         }
-    }
+        
+        const transaction = db.transaction(STORE_NAME, 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+        
+        request.onsuccess = (event) => {
+            transactions = event.target.result;
+            // Sort by date (newest first)
+            transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+            filteredTransactions = [...transactions];
+            console.log(`Loaded ${transactions.length} transactions from IndexedDB`);
+            resolve();
+        };
+        
+        request.onerror = (event) => {
+            console.error('Error loading transactions from IndexedDB:', event.target.error);
+            transactions = [];
+            filteredTransactions = [];
+            reject(event.target.error);
+        };
+    });
 }
 
-// Save transactions to localStorage
-function saveTransactions() {
-    try {
-        localStorage.setItem('zenbudget_transactions', JSON.stringify(transactions));
-    } catch (e) {
-        console.error('Error saving transactions to localStorage:', e);
-    }
+// Save a transaction to IndexedDB
+async function saveTransaction(transaction) {
+    return new Promise((resolve, reject) => {
+        if (!db) {
+            console.error('IndexedDB not initialized');
+            reject('IndexedDB not initialized');
+            return;
+        }
+        
+        const dbTransaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = dbTransaction.objectStore(STORE_NAME);
+        const request = store.put(transaction);
+        
+        request.onsuccess = () => {
+            console.log('Transaction saved to IndexedDB:', transaction.id);
+            resolve();
+        };
+        
+        request.onerror = (event) => {
+            console.error('Error saving transaction to IndexedDB:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
+
+// Delete a transaction from IndexedDB
+async function deleteTransaction(id) {
+    return new Promise((resolve, reject) => {
+        if (!db) {
+            console.error('IndexedDB not initialized');
+            reject('IndexedDB not initialized');
+            return;
+        }
+        
+        const dbTransaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = dbTransaction.objectStore(STORE_NAME);
+        const request = store.delete(id);
+        
+        request.onsuccess = () => {
+            console.log('Transaction deleted from IndexedDB:', id);
+            resolve();
+        };
+        
+        request.onerror = (event) => {
+            console.error('Error deleting transaction from IndexedDB:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
+
+// Clear all transactions from IndexedDB
+async function clearAllTransactionsFromDB() {
+    return new Promise((resolve, reject) => {
+        if (!db) {
+            console.error('IndexedDB not initialized');
+            reject('IndexedDB not initialized');
+            return;
+        }
+        
+        const dbTransaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = dbTransaction.objectStore(STORE_NAME);
+        const request = store.clear();
+        
+        request.onsuccess = () => {
+            console.log('All transactions cleared from IndexedDB');
+            resolve();
+        };
+        
+        request.onerror = (event) => {
+            console.error('Error clearing transactions from IndexedDB:', event.target.error);
+            reject(event.target.error);
+        };
+    });
 }
 
 // Setup all event listeners
@@ -99,7 +234,7 @@ function closeModal() {
 }
 
 // Add a new transaction
-function addTransaction(e) {
+async function addTransaction(e) {
     e.preventDefault();
     
     const name = transactionNameInput.value.trim();
@@ -114,7 +249,7 @@ function addTransaction(e) {
     
     // Create transaction object
     const transaction = {
-        id: Date.now(), // Simple unique ID
+        id: Date.now() + Math.random(), // More unique ID
         name,
         amount,
         category,
@@ -122,23 +257,32 @@ function addTransaction(e) {
         type: amount >= 0 ? 'income' : 'expense'
     };
     
-    // Add to transactions array
-    transactions.unshift(transaction);
-    filteredTransactions = [...transactions];
-    
-    // Save to localStorage
-    saveTransactions();
-    
-    // Update UI
-    renderTransactions();
-    updateBalance();
-    updateSpendingSummary();
-    
-    // Reset form
-    transactionForm.reset();
-    
-    // Show visual feedback
-    transactionNameInput.focus();
+    try {
+        // Save to IndexedDB
+        await saveTransaction(transaction);
+        
+        // Add to transactions array (at beginning for newest first)
+        transactions.unshift(transaction);
+        filteredTransactions = [...transactions];
+        
+        // Update UI
+        renderTransactions();
+        updateBalance();
+        updateSpendingSummary();
+        
+        // Reset form
+        transactionForm.reset();
+        
+        // Show visual feedback
+        transactionNameInput.focus();
+        
+        // Show success notification
+        showNotification('Transaction added successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Error adding transaction:', error);
+        showNotification('Error saving transaction. Please try again.', 'error');
+    }
 }
 
 // Filter transactions based on search input
@@ -174,6 +318,34 @@ function renderTransactions() {
     // Create transaction items
     filteredTransactions.forEach(transaction => {
         const transactionElement = createTransactionElement(transaction);
+        
+        // Add delete button to each transaction
+        const deleteButton = document.createElement('button');
+        deleteButton.className = 'delete-transaction';
+        deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+        deleteButton.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to delete this transaction?')) {
+                try {
+                    await deleteTransaction(transaction.id);
+                    
+                    // Remove from arrays
+                    transactions = transactions.filter(t => t.id !== transaction.id);
+                    filteredTransactions = filteredTransactions.filter(t => t.id !== transaction.id);
+                    
+                    // Update UI
+                    renderTransactions();
+                    updateBalance();
+                    updateSpendingSummary();
+                    
+                    showNotification('Transaction deleted successfully!', 'success');
+                } catch (error) {
+                    console.error('Error deleting transaction:', error);
+                    showNotification('Error deleting transaction. Please try again.', 'error');
+                }
+            }
+        });
+        
+        transactionElement.appendChild(deleteButton);
         transactionsList.appendChild(transactionElement);
     });
 }
@@ -182,6 +354,7 @@ function renderTransactions() {
 function createTransactionElement(transaction) {
     const transactionElement = document.createElement('div');
     transactionElement.className = `transaction-item ${transaction.type}`;
+    transactionElement.dataset.id = transaction.id;
     
     // Format date
     const date = new Date(transaction.date);
@@ -339,37 +512,166 @@ function formatCurrency(amount) {
 }
 
 // Clear all transactions
-function clearAllTransactions() {
-    // Clear transactions array
-    transactions = [];
-    filteredTransactions = [];
-    
-    // Save to localStorage
-    saveTransactions();
-    
-    // Update UI
-    renderTransactions();
-    updateBalance();
-    updateSpendingSummary();
-    
-    // Close modal
-    closeModal();
-    
-    // Show confirmation message
-    showNotification('All transactions have been cleared.');
+async function clearAllTransactions() {
+    try {
+        // Clear from IndexedDB
+        await clearAllTransactionsFromDB();
+        
+        // Clear transactions array
+        transactions = [];
+        filteredTransactions = [];
+        
+        // Update UI
+        renderTransactions();
+        updateBalance();
+        updateSpendingSummary();
+        
+        // Close modal
+        closeModal();
+        
+        // Show confirmation message
+        showNotification('All transactions have been cleared.', 'success');
+    } catch (error) {
+        console.error('Error clearing transactions:', error);
+        showNotification('Error clearing transactions. Please try again.', 'error');
+    }
 }
 
-// Show notification
-function showNotification(message) {
-    // Create notification element
+// =============== PWA Functions ===============
+
+// PWA Initialization
+function initPWA() {
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+                .then((registration) => {
+                    console.log('Service Worker registered with scope:', registration.scope);
+                    
+                    // Check for updates
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        console.log('New Service Worker found:', newWorker);
+                    });
+                })
+                .catch((error) => {
+                    console.error('Service Worker registration failed:', error);
+                });
+        });
+    }
+    
+    // Install prompt
+    let deferredPrompt;
+    
+    window.addEventListener('beforeinstallprompt', (e) => {
+        // Prevent Chrome 67 and earlier from automatically showing the prompt
+        e.preventDefault();
+        // Stash the event so it can be triggered later
+        deferredPrompt = e;
+        
+        // Show install button
+        if (installPrompt) {
+            installPrompt.style.display = 'block';
+            
+            installButton.addEventListener('click', () => {
+                // Hide our install button
+                installPrompt.style.display = 'none';
+                
+                // Show the install prompt
+                deferredPrompt.prompt();
+                
+                // Wait for the user to respond to the prompt
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('User accepted the install prompt');
+                        showNotification('ZenBudget installed successfully!', 'success');
+                    } else {
+                        console.log('User dismissed the install prompt');
+                    }
+                    deferredPrompt = null;
+                });
+            });
+        }
+    });
+    
+    // Listen for app installed event
+    window.addEventListener('appinstalled', (event) => {
+        console.log('App was installed');
+        if (installPrompt) {
+            installPrompt.style.display = 'none';
+        }
+    });
+    
+    // Online/Offline detection
+    window.addEventListener('online', () => {
+        console.log('App is online');
+        if (offlineIndicator) {
+            offlineIndicator.style.display = 'none';
+        }
+        showNotification('You are back online!', 'success');
+    });
+    
+    window.addEventListener('offline', () => {
+        console.log('App is offline');
+        if (offlineIndicator) {
+            offlineIndicator.style.display = 'inline-flex';
+        }
+        showNotification('You are offline. Changes will sync when back online.', 'warning');
+    });
+    
+    // Check initial network status
+    if (!navigator.onLine && offlineIndicator) {
+        offlineIndicator.style.display = 'inline-flex';
+    }
+    
+    // Check for PWA display mode
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        console.log('Running in standalone mode');
+    }
+}
+
+// Enhanced showNotification function with PWA support
+function showNotification(message, type = 'info') {
+    // If we have Notification API permission and app is in background
+    if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        const notification = new Notification('ZenBudget', {
+            body: message,
+            icon: '/icons/icon-192x192.png',
+            badge: '/icons/icon-96x96.png'
+        });
+        
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
+    }
+    
+    // Also show in-app notification
     const notification = document.createElement('div');
-    notification.className = 'notification';
+    notification.className = `notification notification-${type}`;
     notification.textContent = message;
+    
+    // Set colors based on notification type
+    let backgroundColor;
+    switch(type) {
+        case 'success':
+            backgroundColor = '#10b981';
+            break;
+        case 'warning':
+            backgroundColor = '#f59e0b';
+            break;
+        case 'error':
+            backgroundColor = '#ef4444';
+            break;
+        default:
+            backgroundColor = 'var(--glass-bg)';
+    }
+    
     notification.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
-        background: var(--glass-bg);
+        background: ${backgroundColor};
         backdrop-filter: blur(10px);
         border: 1px solid var(--glass-border);
         padding: 15px 25px;
@@ -378,6 +680,9 @@ function showNotification(message) {
         z-index: 1001;
         transform: translateX(150%);
         transition: transform 0.3s ease;
+        color: white;
+        max-width: 300px;
+        word-wrap: break-word;
     `;
     
     document.body.appendChild(notification);
@@ -391,13 +696,26 @@ function showNotification(message) {
     setTimeout(() => {
         notification.style.transform = 'translateX(150%)';
         setTimeout(() => {
-            document.body.removeChild(notification);
+            if (notification.parentNode) {
+                document.body.removeChild(notification);
+            }
         }, 300);
     }, 3000);
 }
 
+// Request notification permission (call this from a user action, like a button)
+function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then((permission) => {
+            if (permission === 'granted') {
+                showNotification('Notifications enabled!', 'success');
+            }
+        });
+    }
+}
+
 // Stress test: Add sample data
-function addSampleData() {
+async function addSampleData() {
     // Only add if no transactions exist
     if (transactions.length > 0) return;
     
@@ -412,20 +730,30 @@ function addSampleData() {
         { name: 'Coffee Shop', amount: -12.5, category: 'Food', date: new Date().toISOString() }
     ];
     
-    sampleTransactions.forEach(transaction => {
-        transaction.id = Date.now() + Math.random();
-        transaction.type = transaction.amount >= 0 ? 'income' : 'expense';
-    });
-    
-    transactions = sampleTransactions;
-    filteredTransactions = [...transactions];
-    
-    saveTransactions();
-    renderTransactions();
-    updateBalance();
-    updateSpendingSummary();
-    
-    showNotification('Sample data loaded. Try the search and clear features!');
+    try {
+        // Save each transaction to IndexedDB
+        for (const transaction of sampleTransactions) {
+            const fullTransaction = {
+                ...transaction,
+                id: Date.now() + Math.random(),
+                type: transaction.amount >= 0 ? 'income' : 'expense'
+            };
+            
+            await saveTransaction(fullTransaction);
+            transactions.push(fullTransaction);
+        }
+        
+        filteredTransactions = [...transactions];
+        
+        renderTransactions();
+        updateBalance();
+        updateSpendingSummary();
+        
+        showNotification('Sample data loaded. Try the search and clear features!', 'success');
+    } catch (error) {
+        console.error('Error adding sample data:', error);
+        showNotification('Error loading sample data.', 'error');
+    }
 }
 
 // Initialize the application when DOM is loaded
