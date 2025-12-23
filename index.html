@@ -4,10 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZenBudget | Personal Finance Tracker</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="application-name" content="ZenBudget">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ZenBudget">
+    <meta name="description" content="Mindful Spending, Peaceful Living - Track your personal finances">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- iOS Icons -->
+    <link rel="apple-touch-icon" href="icons/icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="icons/icon-167x167.png">
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="icons/icon-96x96.png">
+    
+    <!-- Stylesheets -->
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
 </head>
 <body>
     <div class="container">
@@ -17,6 +38,11 @@
                 <h1>ZenBudget</h1>
             </div>
             <p class="tagline">Mindful Spending, Peaceful Living</p>
+            <div class="install-prompt" id="install-prompt" style="display: none;">
+                <button id="install-button" class="btn-install">
+                    <i class="fas fa-download"></i> Install App
+                </button>
+            </div>
         </header>
 
         <main class="dashboard">
@@ -105,10 +131,18 @@
                     <p class="empty-list" id="empty-list-text">No transactions yet. Add one above to get started!</p>
                 </div>
             </div>
+            
+            <!-- PWA Status Indicator -->
+            <div class="pwa-status" id="pwa-status">
+                <span class="offline-indicator" id="offline-indicator" style="display: none;">
+                    <i class="fas fa-wifi-slash"></i> Offline Mode
+                </span>
+            </div>
         </main>
 
         <footer class="footer">
             <p>ZenBudget &copy; <span id="current-year">2025</span> | Bright Borngreat</p>
+            <p class="app-version">Version 1.0.0</p>
         </footer>
     </div>
 
@@ -131,5 +165,4 @@
 
     <script src="script.js"></script>
 </body>
-
 </html>
